@@ -2,8 +2,11 @@ use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
 use std::io::Write;
+use std::thread;
+use std::time::Duration;
 
 #[derive(Parser)]
+#[clap(version)]
 struct Opts {
     /// Specify file output location
     #[clap(short, long)]
@@ -11,12 +14,16 @@ struct Opts {
     /// Default device to listen to
     #[clap(short, long)]
     listen: Listen,
-    /// Use recorded audio as input
-    #[clap(long)]
+    /// Use an output stream as input
+    /// (No effect while listening to input devices)
+    #[clap(long, verbatim_doc_comment)]
     loopback: bool,
     /// Delay recording (seconds)
     #[clap(short, long)]
     delay: Option<usize>,
+    /// Don't play sound during delay countdown
+    #[clap(short, long)]
+    quiet: bool,
 }
 
 #[derive(ValueEnum, Clone, PartialEq)]
@@ -39,25 +46,27 @@ fn main() -> Result<()> {
         eprintln!("Listening to {name}");
     }
 
+    let device_kind = device.kind();
     let mut stream = audior::StreamBuilder::new(device)?;
 
-    if options.loopback {
-        stream.from_input();
+    if device_kind == audior::Device::Output && options.loopback {
+        stream.as_input();
     }
 
     let writer = stream.write_wav(options.output.unwrap_or_else(|| "out.wav".into()))?;
 
     if let Some(delay) = options.delay {
-        write!(&stdout, "Recording in ")?;
+        write!(&stdout, "Recording in  ")?;
         stdout.flush()?;
+        let alert = if options.quiet { "" } else { "\x07" };
 
-        for i in (1..=delay).rev() {
-            write!(&stdout, "{i} ")?;
+        for i in (0..=delay).rev() {
+            write!(&stdout, "\x08{i}{alert}")?;
             stdout.flush()?;
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            thread::sleep(Duration::from_secs(1));
         }
 
-        println!();
+        print!("\r");
     }
 
     stream.play()?;

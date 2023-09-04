@@ -141,7 +141,7 @@ pub struct StreamBuilder {
     config: SupportedStreamConfig,
     stream: Option<cpal::Stream>,
     writer: Option<WavWriter>,
-    from_kind: Device,
+    kind: Device,
 }
 
 type WavWriter = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
@@ -166,17 +166,17 @@ impl StreamBuilder {
             config,
             stream: None,
             writer: None,
-            from_kind,
+            kind: from_kind,
         })
     }
 
-    pub fn from_input(&mut self) -> &mut Self {
-        self.from_kind = Device::Input;
+    pub fn as_input(&mut self) -> &mut Self {
+        self.kind = Device::Input;
         self
     }
 
-    pub fn from_output(&mut self) -> &mut Self {
-        self.from_kind = Device::Output;
+    pub fn as_output(&mut self) -> &mut Self {
+        self.kind = Device::Output;
         self
     }
 
@@ -194,35 +194,35 @@ impl StreamBuilder {
         let wav_writer = Arc::clone(&writer);
 
         let stream = match self.config.sample_format() {
-            cpal::SampleFormat::F32 if self.from_kind == Device::Input => {
+            cpal::SampleFormat::F32 if self.kind == Device::Input => {
                 make_wav_input_stream::<f32>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
-            cpal::SampleFormat::F32 if self.from_kind == Device::Output => {
+            cpal::SampleFormat::F32 if self.kind == Device::Output => {
                 make_wav_output_stream::<f32>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
-            cpal::SampleFormat::I32 if self.from_kind == Device::Input => {
+            cpal::SampleFormat::I32 if self.kind == Device::Input => {
                 make_wav_input_stream::<i32>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
-            cpal::SampleFormat::I32 if self.from_kind == Device::Output => {
+            cpal::SampleFormat::I32 if self.kind == Device::Output => {
                 make_wav_output_stream::<i32>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
-            cpal::SampleFormat::I16 if self.from_kind == Device::Input => {
+            cpal::SampleFormat::I16 if self.kind == Device::Input => {
                 make_wav_input_stream::<i16>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
-            cpal::SampleFormat::I16 if self.from_kind == Device::Output => {
+            cpal::SampleFormat::I16 if self.kind == Device::Output => {
                 make_wav_output_stream::<i16>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
-            cpal::SampleFormat::I8 if self.from_kind == Device::Input => {
+            cpal::SampleFormat::I8 if self.kind == Device::Input => {
                 make_wav_input_stream::<i8>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
-            cpal::SampleFormat::I8 if self.from_kind == Device::Output => {
+            cpal::SampleFormat::I8 if self.kind == Device::Output => {
                 make_wav_output_stream::<i8>(&self.device.inner, &cfg.into(), wav_writer)
                     .or(Err(Error::StreamCreationError))?
             }
@@ -280,7 +280,7 @@ fn make_wav_output_stream<T>(
     writer: WavWriter,
 ) -> Result<cpal::Stream, cpal::BuildStreamError>
 where
-T: cpal::SizedSample + hound::Sample,
+    T: cpal::SizedSample + hound::Sample,
 {
     device.build_output_stream(
         cfg,
