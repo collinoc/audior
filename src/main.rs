@@ -16,6 +16,7 @@ struct Opts {
     listen: Listen,
     /// Use an output stream as input
     /// (No effect while listening to input devices)
+    #[cfg(target_os = "windows")]
     #[clap(long, verbatim_doc_comment)]
     loopback: bool,
     /// Delay recording (seconds)
@@ -46,9 +47,11 @@ fn main() -> Result<()> {
         eprintln!("Listening to {name}");
     }
 
+    #[cfg(target_os = "windows")]
     let device_kind = device.kind();
     let mut stream = audior::StreamBuilder::new(device)?;
 
+    #[cfg(target_os = "windows")]
     if device_kind == audior::Device::Output && options.loopback {
         stream.as_input();
     }
@@ -67,6 +70,7 @@ fn main() -> Result<()> {
         }
 
         print!("\r");
+        thread::sleep(Duration::from_millis(500));
     }
 
     stream.play()?;

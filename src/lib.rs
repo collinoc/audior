@@ -54,7 +54,7 @@ pub struct DeviceBuilder {
     config: SupportedStreamConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     DefaultInputDeviceError,
     DefaultOutputDeviceError,
@@ -62,7 +62,7 @@ pub enum Error {
     StreamConfigFormatError,
     StreamCreationError,
     OutputLockError,
-    WriteError,
+    WriterCreationError(String), // TODO: Try to hold the actual error instead of string
     PlayError,
 }
 
@@ -77,7 +77,9 @@ impl std::fmt::Display for Error {
             Error::StreamConfigFormatError => f.write_str("Bad stream config format"),
             Error::StreamCreationError => f.write_str("Error creating stream"),
             Error::OutputLockError => f.write_str("Error getting default device config"),
-            Error::WriteError => f.write_str("Error writing data"),
+            Error::WriterCreationError(e) => {
+                f.write_fmt(format_args!("Error creating data writer\n{e}"))
+            }
             Error::PlayError => f.write_str("Error recording data"),
         }
     }
@@ -185,7 +187,8 @@ impl StreamBuilder {
         P: AsRef<Path>,
     {
         let writer = hound::WavWriter::create(path, self.device.config().as_wav_spec())
-            .or(Err(Error::WriteError))?;
+            .or_else(|e| Err(Error::WriterCreationError(e.to_string())))?;
+
         let writer = Arc::new(Mutex::new(Some(writer)));
 
         self.writer = Some(Arc::clone(&writer));
