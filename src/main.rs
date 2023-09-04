@@ -8,7 +8,7 @@ use std::time::Duration;
 #[derive(Parser)]
 #[clap(version)]
 struct Opts {
-    /// Specify file output location
+    /// Specify file output location (default: out.wav)
     #[clap(short, long)]
     output: Option<String>,
     /// Default device to listen to
@@ -60,7 +60,7 @@ fn main() -> Result<()> {
         stdout.flush()?;
         let alert = if options.quiet { "" } else { "\x07" };
 
-        for i in (0..=delay).rev() {
+        for i in (1..=delay).rev() {
             write!(&stdout, "\x08{i}{alert}")?;
             stdout.flush()?;
             thread::sleep(Duration::from_secs(1));
