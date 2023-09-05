@@ -222,7 +222,7 @@ impl StreamBuilder {
 
         let stream = match_sample_format!(
             [
-                cpal::SampleFormat::I32 => f32,
+                cpal::SampleFormat::F32 => f32,
                 cpal::SampleFormat::I32 => i32,
                 cpal::SampleFormat::I16 => i16,
                 cpal::SampleFormat::I8 => i8,
