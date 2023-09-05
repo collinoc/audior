@@ -8,24 +8,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+
   build:
-
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --release
-    - name: Run tests
-      run: cargo test --verbose
-
-  build-win:
 
     runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --release
+    
     - name: Run tests
       run: cargo test --verbose
+      
+    - name: Build
+      run: cargo build --release --verbose
+      
+    - name: Deploy
+      uses: actions/upload-artifact@v3
+      with:
+        name: audior
+        path: target/release/audior.exe
+      
