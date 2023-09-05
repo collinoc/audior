@@ -5,7 +5,7 @@ use std::io::Write;
 use std::thread;
 use std::time::Duration;
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[clap(version)]
 struct Opts {
     /// Specify file output location (default: out.wav)
@@ -16,7 +16,6 @@ struct Opts {
     listen: Listen,
     /// Use an output stream as input
     /// (No effect while listening to input devices)
-    #[cfg(target_os = "windows")]
     #[clap(long, verbatim_doc_comment)]
     loopback: bool,
     /// Delay recording (seconds)
@@ -27,11 +26,14 @@ struct Opts {
     quiet: bool,
 }
 
-#[derive(ValueEnum, Clone, PartialEq)]
+#[derive(ValueEnum, Debug, Clone, PartialEq)]
 enum Listen {
     In,
     Out,
 }
+
+const BACKSPACE: &str = "\x08";
+const ALERT: &str = "\x07";
 
 fn main() -> Result<()> {
     let options = Opts::parse();
@@ -47,11 +49,9 @@ fn main() -> Result<()> {
         eprintln!("Listening to {name}");
     }
 
-    #[cfg(target_os = "windows")]
     let device_kind = device.kind();
     let mut stream = audior::StreamBuilder::new(device)?;
 
-    #[cfg(target_os = "windows")]
     if device_kind == audior::Device::Output && options.loopback {
         stream.as_input();
     }
@@ -61,16 +61,16 @@ fn main() -> Result<()> {
     if let Some(delay) = options.delay {
         write!(&stdout, "Recording in  ")?;
         stdout.flush()?;
-        let alert = if options.quiet { "" } else { "\x07" };
+        let alert = if options.quiet { "" } else { ALERT };
 
         for i in (1..=delay).rev() {
-            write!(&stdout, "\x08{i}{alert}")?;
+            write!(&stdout, "{BACKSPACE}{i}{alert}")?;
             stdout.flush()?;
             thread::sleep(Duration::from_secs(1));
         }
 
         print!("\r");
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_millis(500)); // Don't record the last ding
     }
 
     stream.play()?;
