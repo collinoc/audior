@@ -30,16 +30,16 @@ fn main() -> Result<()> {
     let mut stdout = std::io::stdout();
 
     let device = if options.listen == Listen::In {
-        audior::DeviceBuilder::new_default_input()?
+        audiort::DeviceBuilder::new_default_input()?
     } else {
-        audior::DeviceBuilder::new_default_output()?
+        audiort::DeviceBuilder::new_default_output()?
     };
 
     if let Ok(name) = device.name() {
         eprintln!("Listening to {name}");
     }
 
-    let mut stream = audior::StreamBuilder::new(device)?;
+    let mut stream = audiort::StreamBuilder::new(device)?;
 
     if options.loopback {
         stream.from_input();
