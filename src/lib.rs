@@ -2,6 +2,7 @@ use cpal::traits::DeviceTrait;
 use cpal::traits::HostTrait;
 use cpal::traits::StreamTrait;
 use cpal::SupportedStreamConfig;
+use std::sync::mpsc;
 use hound::WavSpec;
 use std::error;
 use std::fs::File;
@@ -138,18 +139,20 @@ impl DeviceBuilder {
     }
 }
 
-pub struct StreamBuilder {
+pub struct StreamBuilder<'a> {
     device: DeviceBuilder,
     config: SupportedStreamConfig,
     stream: Option<cpal::Stream>,
+    sender: Option<mpsc::Sender<&'a [u8]>>,
+    receiver: Option<mpsc::Receiver<&'a [u8]>>,
     kind: Device,
 }
 
 type WavWriter = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
-impl StreamBuilder {
-    pub fn new(device: DeviceBuilder) -> Result<StreamBuilder, Error> {
-        let from_kind = device.kind;
+impl<'a> StreamBuilder<'a> {
+    pub fn from(device: DeviceBuilder) -> Result<StreamBuilder<'a>, Error> {
+        let kind = device.kind;
 
         let config = match device.kind {
             Device::Input => device
@@ -166,7 +169,9 @@ impl StreamBuilder {
             device,
             config,
             stream: None,
-            kind: from_kind,
+            sender: None,
+            receiver: None,
+            kind,
         })
     }
 
@@ -184,8 +189,40 @@ impl StreamBuilder {
         self.stream.as_ref()
     }
 
-    pub fn write_to_stream(&mut self, other: cpal::Stream) -> Result<(), Error> {
-        todo!()
+    pub fn write_to(&mut self, other: DeviceBuilder) -> Result<(), Error> {
+        match other.kind {
+            Device::Input => {
+                todo!()
+            }
+            Device::Output => {
+                let (tx, rx) = mpsc::channel();
+
+                self.sender = Some(tx);
+                self.receiver = Some(rx);
+
+                self.build_input_stream(move |bytes: &[f32]| {
+
+                })
+                .or(Err(Error::StreamCreationError))?;
+
+                // FIXME: match on type
+                self.build_output_stream(move |bytes: &mut [f32]| {
+                    if let Some(rx) = self.receiver {
+                        let size = std::mem::size_of::<f32>();
+
+                        while let Ok(recv_bytes) = rx.recv() {
+                            for (i, slice) in recv_bytes.chunks_exact(size).enumerate() {
+                                bytes[i] = 0f32;
+                            }
+                        }
+                    }
+                })
+                .or(Err(Error::StreamCreationError))?;
+
+            }
+        }
+
+        Ok(())
     }
 
     pub fn write_wav<P>(&mut self, path: P) -> Result<WavWriter, Error>
@@ -198,24 +235,35 @@ impl StreamBuilder {
         let writer = Arc::new(Mutex::new(Some(writer)));
 
         let wav_writer = Arc::clone(&writer);
-        let sample_size = self.config.sample_format().sample_size();
 
-        let stream = match self.kind {
-            Device::Input => {
-                self.build_input_stream(|data: &[_]| {
-                    match self.config.sample_format() {
-                        cpal::SampleFormat::F32 => write_wav_data::<f32>(data, &wav_writer),
-                        cpal::SampleFormat::I32 => write_wav_data::<i32>(data, &wav_writer),
-                        cpal::SampleFormat::I16 => write_wav_data::<i16>(data, &wav_writer),
-                        cpal::SampleFormat::I8  => write_wav_data::<i8>(data, &wav_writer),
-                        _ => fail!("bad sample format")
+        let stream =
+            match self.kind {
+                Device::Input => match self.config.sample_format() {
+                    cpal::SampleFormat::F32 => self
+                        .build_input_stream::<f32>(move |data| write_wav_data(data, &wav_writer)),
+                    cpal::SampleFormat::I32 => self
+                        .build_input_stream::<i32>(move |data| write_wav_data(data, &wav_writer)),
+                    cpal::SampleFormat::I16 => self
+                        .build_input_stream::<i16>(move |data| write_wav_data(data, &wav_writer)),
+                    cpal::SampleFormat::I8 => {
+                        self.build_input_stream::<i8>(move |data| write_wav_data(data, &wav_writer))
                     }
-                })
+                    _ => return Err(Error::StreamConfigFormatError),
+                },
+                Device::Output => match self.config.sample_format() {
+                    cpal::SampleFormat::F32 => self
+                        .build_output_stream::<f32>(move |data| write_wav_data(data, &wav_writer)),
+                    cpal::SampleFormat::I32 => self
+                        .build_output_stream::<i32>(move |data| write_wav_data(data, &wav_writer)),
+                    cpal::SampleFormat::I16 => self
+                        .build_output_stream::<i16>(move |data| write_wav_data(data, &wav_writer)),
+                    cpal::SampleFormat::I8 => self
+                        .build_output_stream::<i8>(move |data| write_wav_data(data, &wav_writer)),
+                    _ => return Err(Error::StreamConfigFormatError),
+                },
+                _ => todo!(),
             }
-                // self.build_input_stream::<i16>(move |data| write_wav_data(data, &wav_writer))
-            _ => todo!(),
-        }
-        .or(Err(Error::StreamCreationError))?;
+            .or(Err(Error::StreamCreationError))?;
 
         self.stream = Some(stream);
 
@@ -237,6 +285,21 @@ impl StreamBuilder {
         )
     }
 
+    fn build_output_stream<T>(
+        &self,
+        func: impl Fn(&mut [T]) + Send + 'static,
+    ) -> Result<cpal::Stream, cpal::BuildStreamError>
+    where
+        T: cpal::SizedSample + hound::Sample,
+    {
+        self.device.inner.build_output_stream(
+            &self.config.clone().into(), // TODO: Try to remove clone
+            move |data: &mut [T], _| func(data),
+            move |err| fail!("writing data to buffer failed", err),
+            None,
+        )
+    }
+
     pub fn play(&self) -> Result<(), Error> {
         if let Some(stream) = &self.stream {
             stream.play().or(Err(Error::PlayError))?;
@@ -246,19 +309,16 @@ impl StreamBuilder {
     }
 }
 
-fn write_wav_data<T>(data: &[u8], writer: &WavWriter)
+fn write_wav_data<T>(data: &[T], writer: &WavWriter)
 where
     T: cpal::FromSample<T> + cpal::Sample + hound::Sample,
 {
-    let chunk_size = std::mem::size_of::<T>();
     if let Ok(mut wlock) = writer.lock() {
         if let Some(writer) = wlock.as_mut() {
-            for dat in data.chunks_exact(chunk_size) {
-                let Ok(value) = dat.try_into().unwrap();
-
-                // writer
-                //     .write_sample::<T>(dat)
-                //     .unwrap_or_else(|err| fail!("failed writing sample", err));
+            for &d in data {
+                writer
+                    .write_sample(T::from_sample(d))
+                    .expect("failed to write sample");
             }
         }
     }
