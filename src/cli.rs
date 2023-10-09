@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use audiort::WavExt;
 use clap::{Parser, Subcommand, ValueEnum};
+use cpal::SampleFormat;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -89,27 +90,31 @@ pub fn cli_main() -> Result<()> {
             let writer = hound::WavWriter::create(path.clone(), device.config().as_wav_spec())
                 .context("failed to creat wav writer")?;
 
+            let sample_format = device.config().sample_format();
             let mut stream = audiort::StreamBuilder::from(device)?;
 
             do_delay(options.delay, options.quiet)?;
 
             let writer = Arc::new(Mutex::new(Some(writer)));
-
             let wav_writer = Arc::clone(&writer);
 
-            stream
-                .with_reader(move |data| {
-                    if let Ok(mut wlock) = wav_writer.lock() {
-                        if let Some(writer) = wlock.as_mut() {
-                            for d in data.bytes() {
-                                writer
-                                    .write_sample(*d as i8)
-                                    .expect("failed to write sample");
-                            }
-                        }
-                    }
-                })
-                .context("stream creation failed")?;
+            let stream_create_result = match sample_format {
+                SampleFormat::F32 => {
+                    stream.with_reader(move |data| write_wav_data::<f32>(data, &wav_writer))
+                }
+                SampleFormat::U32 => {
+                    stream.with_reader(move |data| write_wav_data::<i32>(data, &wav_writer))
+                }
+                SampleFormat::U16 => {
+                    stream.with_reader(move |data| write_wav_data::<i16>(data, &wav_writer))
+                }
+                SampleFormat::U8 => {
+                    stream.with_reader(move |data| write_wav_data::<i8>(data, &wav_writer))
+                }
+                _ => return Err(audiort::Error::StreamConfigFormatError)?,
+            };
+
+            stream_create_result.context("failed to create stream")?;
 
             stream.play()?;
 
@@ -154,13 +159,14 @@ fn do_delay(delay: Option<usize>, quiet: bool) -> std::io::Result<()> {
 
 type WavWriter = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
-fn write_wav_data(data: &[u8], writer: &WavWriter) {
+fn write_wav_data<T>(data: &[T], writer: &WavWriter)
+where
+    T: hound::Sample + cpal::SizedSample,
+{
     if let Ok(mut wlock) = writer.lock() {
         if let Some(writer) = wlock.as_mut() {
-            for &d in data {
-                writer
-                    .write_sample(d as i8)
-                    .expect("failed to write sample");
+            for &d in data.iter() {
+                writer.write_sample(d).expect("failed to write sample");
             }
         }
     }

@@ -172,21 +172,21 @@ impl StreamBuilder {
         Ok(())
     }
 
-    pub fn with_reader(
+    pub fn with_reader<T>(
         &mut self,
-        func: impl Fn(&cpal::Data) + Send + 'static,
-    ) -> Result<&cpal::Stream, cpal::BuildStreamError> {
-        let format = self.config.sample_format();
-
-        let stream = self.device.inner.build_input_stream_raw(
+        func: impl Fn(&[T]) + Send + 'static,
+    ) -> Result<&cpal::Stream, cpal::BuildStreamError>
+    where
+        T: cpal::Sample + cpal::FromSample<T> + hound::Sample + cpal::SizedSample,
+    {
+        let stream = self.device.inner.build_input_stream(
             &self.config.clone().into(),
-            format,
-            move |data: &cpal::Data, _: &_| func(data),
+            move |data, _: &_| func(data),
             move |err| panic!("writing data to buffer failed: {err}"),
             None,
         )?;
+
         self.stream = Some(stream);
-        println!("Set reader");
 
         Ok(self.stream.as_ref().unwrap())
     }
